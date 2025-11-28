@@ -1,0 +1,1 @@
+# Sensors-Linux-by-zabbix-agent-and-user-parameter
