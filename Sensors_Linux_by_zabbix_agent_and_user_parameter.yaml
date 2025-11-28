@@ -1,0 +1,320 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+    - uuid: e960332b3f6c46a1956486d4f3f99fce
+      name: 'Templates/Server hardware'
+  templates:
+    - uuid: 49494313cc57497c8e0c96aee6213daa
+      template: 'Sensors Linux by zabbix agent active and user parameters'
+      name: 'Sensors Linux by zabbix agent active and user parameters'
+      groups:
+        - name: 'Templates/Server hardware'
+      items:
+        - uuid: fb58ab2c3c424035b932a4d92d32eed3
+          name: 'Sensors Linux: RAW output'
+          type: ZABBIX_ACTIVE
+          key: sensors.raw
+          delay: 20s
+          history: '0'
+          value_type: TEXT
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 60s
+      discovery_rules:
+        - uuid: 00177fc3292e426ebca324bdc480eb0b
+          name: 'Sensors Linux: temperature discovery'
+          type: DEPENDENT
+          key: sensors.discovery
+          item_prototypes:
+            - uuid: 7d23b3e418d04a3eaec8dd5d51012d0b
+              name: 'Sensors Linux: Temperature [{#CHIP} - {#LABEL}]'
+              type: DEPENDENT
+              key: 'sensors.linux.temp[{#CHIP},{#LABEL}]'
+              value_type: FLOAT
+              units: °C
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      // "value" contiene SEMPRE l'output completo del comando "sensors"
+                      // Vengono sostituiti da Zabbix con i valori del discovery
+                      var chip  = '{#CHIP}';
+                      var label = '{#LABEL}';
+                      
+                      var lines = value.split('\n');
+                      var currentChip = null;
+                      
+                      for (var i = 0; i < lines.length; i++) {
+                          var rawLine = lines[i];
+                          var trimmed = rawLine.trim();
+                      
+                          // Riconosciamo il chip come nella discovery
+                          if (trimmed !== '' && !/^\s/.test(rawLine) && trimmed.indexOf(':') === -1) {
+                              currentChip = trimmed;
+                              continue;
+                          }
+                      
+                          if (currentChip !== chip) {
+                              continue;
+                          }
+                      
+                          // Cerchiamo la riga con la nostra LABEL
+                          var m = rawLine.match(/^\s*([^:]+):\s*([+\-]?\d+(?:\.\d+)?)°C\b/);
+                          if (m) {
+                              var lineLabel = m[1].trim();
+                              var tempStr   = m[2];
+                      
+                              if (lineLabel === label) {
+                                  // Restituiamo solo il valore numerico
+                                  return parseFloat(tempStr);
+                              }
+                          }
+                      }
+                      
+                      // Se non troviamo niente, facciamo fallire lo step di preprocessing
+                      throw 'Temperature not found for chip=' + chip + ', label=' + label;
+              master_item:
+                key: sensors.raw
+              trigger_prototypes:
+                - uuid: 950621f95f98462e950424d4579ab3a7
+                  expression: 'min(/Sensors Linux by zabbix agent active and user parameters/sensors.linux.temp[{#CHIP},{#LABEL}],1m)>={$TEMP.CRIT}'
+                  name: 'Temperature critical [{#CHIP} - {#LABEL}]'
+                  priority: DISASTER
+                  manual_close: 'YES'
+                - uuid: 964a8c0a1e504c70b005ea9ffa61980d
+                  expression: |
+                    min(/Sensors Linux by zabbix agent active and user parameters/sensors.linux.temp[{#CHIP},{#LABEL}],1m)>={$TEMP.HIGH}
+                    and
+                    min(/Sensors Linux by zabbix agent active and user parameters/sensors.linux.temp[{#CHIP},{#LABEL}],1m)<{$TEMP.CRIT}
+                  name: 'Temperature high [{#CHIP} - {#LABEL}]'
+                  priority: HIGH
+                  manual_close: 'YES'
+                  dependencies:
+                    - name: 'Temperature critical [{#CHIP} - {#LABEL}]'
+                      expression: 'min(/Sensors Linux by zabbix agent active and user parameters/sensors.linux.temp[{#CHIP},{#LABEL}],1m)>={$TEMP.CRIT}'
+                - uuid: 45e3633e52c04d80bcd8ef1a798e3891
+                  expression: |
+                    min(/Sensors Linux by zabbix agent active and user parameters/sensors.linux.temp[{#CHIP},{#LABEL}],1m)>={$TEMP.WARN}
+                    and
+                    min(/Sensors Linux by zabbix agent active and user parameters/sensors.linux.temp[{#CHIP},{#LABEL}],1m)<{$TEMP.HIGH}
+                  name: 'Temperature warning [{#CHIP} - {#LABEL}]'
+                  priority: AVERAGE
+                  manual_close: 'YES'
+                  dependencies:
+                    - name: 'Temperature critical [{#CHIP} - {#LABEL}]'
+                      expression: 'min(/Sensors Linux by zabbix agent active and user parameters/sensors.linux.temp[{#CHIP},{#LABEL}],1m)>={$TEMP.CRIT}'
+                    - name: 'Temperature high [{#CHIP} - {#LABEL}]'
+                      expression: |
+                        min(/Sensors Linux by zabbix agent active and user parameters/sensors.linux.temp[{#CHIP},{#LABEL}],1m)>={$TEMP.HIGH}
+                        and
+                        min(/Sensors Linux by zabbix agent active and user parameters/sensors.linux.temp[{#CHIP},{#LABEL}],1m)<{$TEMP.CRIT}
+          graph_prototypes:
+            - uuid: b0d7d9a89b0740b6992d32d6bc72bbb4
+              name: 'Temperature [{#CHIP} - {#LABEL}]'
+              yaxismax: '0'
+              graph_items:
+                - color: 199C0D
+                  calc_fnc: ALL
+                  item:
+                    host: 'Sensors Linux by zabbix agent active and user parameters'
+                    key: 'sensors.linux.temp[{#CHIP},{#LABEL}]'
+          master_item:
+            key: sensors.raw
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  // "value" contiene l'output completo del comando "sensors"
+                  var lines = value.split('\n');
+                  var data = [];
+                  var currentChip = null;
+                  
+                  for (var i = 0; i < lines.length; i++) {
+                      var rawLine = lines[i];
+                      var line = rawLine.trim();
+                  
+                      if (line === '') {
+                          continue;
+                      }
+                  
+                      // Rileva il nome del "chip" (es. nvme-pci-0100, coretemp-isa-0000, ecc.)
+                      // Regola: linea senza indentazione iniziale e senza ":" => è un chip
+                      if (!/^\s/.test(rawLine) && line.indexOf(':') === -1) {
+                          currentChip = line;
+                          continue;
+                      }
+                  
+                      // Rileva le linee temperatura del tipo:
+                      //   Composite:    +32.9°C  (...)
+                      //   Core 0:       +50.0°C  (...)
+                      //   temp1:        +27.8°C
+                      var m = rawLine.match(/^\s*([^:]+):\s*([+\-]?\d+(?:\.\d+)?)°C\b/);
+                      if (m && currentChip) {
+                          var label = m[1].trim();          // es. "Composite", "Core 0", "temp1"
+                          var temp  = m[2];                 // es. "32.9"
+                  
+                          // Costruisco un ID "pulito" da usare eventualmente come parte della key
+                          var itemKey = (currentChip + '_' + label)
+                              .replace(/\s+/g, '_')
+                              .replace(/[^A-Za-z0-9_]/g, '');
+                  
+                          data.push({
+                              "{#CHIP}": currentChip,
+                              "{#LABEL}": label,
+                              "{#ITEMKEY}": itemKey
+                          });
+                      }
+                  }
+                  
+                  return JSON.stringify({data: data});
+      macros:
+        - macro: '{$TEMP.CRIT}'
+          value: '80'
+        - macro: '{$TEMP.HIGH}'
+          value: '70'
+        - macro: '{$TEMP.WARN}'
+          value: '60'
+    - uuid: 41ffd14440474a178d20f8dc1aa38c79
+      template: 'Sensors Linux by zabbix agent and user parameter'
+      name: 'Sensors Linux by zabbix agent and user parameter'
+      groups:
+        - name: 'Templates/Server hardware'
+      items:
+        - uuid: 89dbdce5121142c080a07bfdb5cf4226
+          name: 'Sensors Linux: RAW output'
+          key: sensors.raw
+          delay: 20s
+          history: '0'
+          value_type: TEXT
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 60s
+      discovery_rules:
+        - uuid: 2508a8f90e3d4382a7daba65b7146846
+          name: 'Sensors Linux: temperature discovery'
+          type: DEPENDENT
+          key: sensors.discovery
+          item_prototypes:
+            - uuid: bf286aed63a74d239194e709baccec30
+              name: 'Sensors Linux: Temperature [{#CHIP} - {#LABEL}]'
+              type: DEPENDENT
+              key: 'sensors.linux.temp[{#CHIP},{#LABEL}]'
+              value_type: FLOAT
+              units: °C
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      // "value" contiene SEMPRE l'output completo del comando "sensors"
+                      // Vengono sostituiti da Zabbix con i valori del discovery
+                      var chip  = '{#CHIP}';
+                      var label = '{#LABEL}';
+                      
+                      var lines = value.split('\n');
+                      var currentChip = null;
+                      
+                      for (var i = 0; i < lines.length; i++) {
+                          var rawLine = lines[i];
+                          var trimmed = rawLine.trim();
+                      
+                          // Riconosciamo il chip come nella discovery
+                          if (trimmed !== '' && !/^\s/.test(rawLine) && trimmed.indexOf(':') === -1) {
+                              currentChip = trimmed;
+                              continue;
+                          }
+                      
+                          if (currentChip !== chip) {
+                              continue;
+                          }
+                      
+                          // Cerchiamo la riga con la nostra LABEL
+                          var m = rawLine.match(/^\s*([^:]+):\s*([+\-]?\d+(?:\.\d+)?)°C\b/);
+                          if (m) {
+                              var lineLabel = m[1].trim();
+                              var tempStr   = m[2];
+                      
+                              if (lineLabel === label) {
+                                  // Restituiamo solo il valore numerico
+                                  return parseFloat(tempStr);
+                              }
+                          }
+                      }
+                      
+                      // Se non troviamo niente, facciamo fallire lo step di preprocessing
+                      throw 'Temperature not found for chip=' + chip + ', label=' + label;
+              master_item:
+                key: sensors.raw
+              trigger_prototypes:
+                - uuid: ae4584f8fdfd4587a4a35f671049b14f
+                  expression: 'min(/Sensors Linux by zabbix agent and user parameter/sensors.linux.temp[{#CHIP},{#LABEL}],1m)>={$TEMP.CRIT}'
+                  name: 'Temperature critical [{#CHIP} - {#LABEL}]'
+                  priority: DISASTER
+                  manual_close: 'YES'
+          graph_prototypes:
+            - uuid: 853dac49d5fa430b998884b68f354709
+              name: 'Temperature [{#CHIP} - {#LABEL}]'
+              yaxismax: '0'
+              graph_items:
+                - color: 199C0D
+                  calc_fnc: ALL
+                  item:
+                    host: 'Sensors Linux by zabbix agent and user parameter'
+                    key: 'sensors.linux.temp[{#CHIP},{#LABEL}]'
+          master_item:
+            key: sensors.raw
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  // "value" contiene l'output completo del comando "sensors"
+                  var lines = value.split('\n');
+                  var data = [];
+                  var currentChip = null;
+                  
+                  for (var i = 0; i < lines.length; i++) {
+                      var rawLine = lines[i];
+                      var line = rawLine.trim();
+                  
+                      if (line === '') {
+                          continue;
+                      }
+                  
+                      // Rileva il nome del "chip" (es. nvme-pci-0100, coretemp-isa-0000, ecc.)
+                      // Regola: linea senza indentazione iniziale e senza ":" => è un chip
+                      if (!/^\s/.test(rawLine) && line.indexOf(':') === -1) {
+                          currentChip = line;
+                          continue;
+                      }
+                  
+                      // Rileva le linee temperatura del tipo:
+                      //   Composite:    +32.9°C  (...)
+                      //   Core 0:       +50.0°C  (...)
+                      //   temp1:        +27.8°C
+                      var m = rawLine.match(/^\s*([^:]+):\s*([+\-]?\d+(?:\.\d+)?)°C\b/);
+                      if (m && currentChip) {
+                          var label = m[1].trim();          // es. "Composite", "Core 0", "temp1"
+                          var temp  = m[2];                 // es. "32.9"
+                  
+                          // Costruisco un ID "pulito" da usare eventualmente come parte della key
+                          var itemKey = (currentChip + '_' + label)
+                              .replace(/\s+/g, '_')
+                              .replace(/[^A-Za-z0-9_]/g, '');
+                  
+                          data.push({
+                              "{#CHIP}": currentChip,
+                              "{#LABEL}": label,
+                              "{#ITEMKEY}": itemKey
+                          });
+                      }
+                  }
+                  
+                  return JSON.stringify({data: data});
+      macros:
+        - macro: '{$TEMP.CRIT}'
+          value: '80'
+        - macro: '{$TEMP.HIGH}'
+          value: '70'
+        - macro: '{$TEMP.WARN}'
+          value: '60'
